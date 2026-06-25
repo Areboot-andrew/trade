@@ -1,0 +1,15 @@
+# Backend
+backend/__pycache__/
+backend/.env
+backend/bot_config_cache.json
+backend/binance_api_keys.json
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
+# General
+.DS_Store
+*.log

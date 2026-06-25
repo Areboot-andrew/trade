@@ -1,0 +1,692 @@
+{
+  "strategy_name": "Ultimate Dynamic Grid v3.4 Level Management & Risk Profiles",
+  "description": "Конфігурація для глибоко адаптивної сіткової стратегії з динамічним управлінням рівнями, маржею, ризиками, MACD-інтеграцією та розширеними профілями.",
+  "general_grid_settings": {
+    "description": "Загальні параметри, що визначають, як будується основна сітка лімітних ордерів для докупки або продажу.",
+    "cluster_orders_count": 4,
+    "description_cluster_orders_count": "Скільки окремих маленьких ордерів буде розміщено в кожній 'групі' (кластері) навколо одного основного цінового рівня.",
+    "atr_multiplier_cluster_spread": "0.3",
+    "description_atr_multiplier_cluster_spread": "Наскільки 'широко' будуть розставлені маленькі ордери всередині однієї групи (як множник до ATR активного ТФ групи). ATR тут використовується для визначення розкиду ордерів *всередині* вже знайденої зони.",
+    "initial_group_margin_usd": "10.0",
+    "description_initial_group_margin_usd": "Базова маржа в USD для першої/найближчої групи ордерів, якщо динамічна логіка маржі вимкнена або як відправна точка для неї. Перевизначається в профілях.",
+    "margin_increase_factor_per_group": "1.2",
+    "description_margin_increase_factor_per_group": "Множник для збільшення базової маржі для наступних груп ордерів, якщо використовується послідовне збільшення. Перевизначається в профілях.",
+    "cluster_order_weights_by_count": {
+      "description": "Як розподіляється загальна маржа групи між окремими ордерами в ній, залежно від кількості ордерів у кластері. Сума ваг має дорівнювати 1.0.",
+      "1": ["1.0"],
+      "2": ["0.55", "0.45"],
+      "3": ["0.25", "0.5", "0.25"]
+    },
+    "max_total_active_groups": 6,
+    "description_max_total_active_groups": "Максимальна кількість активних груп ордерів (кластерів), яку система намагатиметься підтримувати одночасно. Перевизначається в профілях.",
+    "max_total_active_groups_preview": 4,
+    "description_max_total_active_groups_preview": "Скільки потенційних груп ордерів показувати у прев'ю сітки в інтерфейсі.",
+    "level_generation_reference_price": "current_market_price",
+    "description_level_generation_reference_price": "Відносно якої ціни генерувати рівні для сітки: 'current_market_price' (поточна ринкова ціна) або 'average_entry_price' (середня ціна входу відкритої позиції)."
+  },
+  "dynamic_margin_logic": {
+    "enabled": true,
+    "description_enabled": "Якщо true, маржа для кожної групи/зони буде розраховуватися динамічно на основі налаштувань нижче. Якщо false, використовується `initial_group_margin_usd` з `general_grid_settings` та `margin_increase_factor_per_group`.",
+    "base_margin_reference_is_initial_overall": true,
+    "description_base_margin_reference": "Якщо true, 'initial_overall_margin' (переданий з логіки симуляції, зазвичай базується на `initial_group_margin_usd` з UI/конфігу) використовується як відправна точка для розрахунків маржі для першої групи. Якщо false, використовується `fixed_base_margin_usd` нижче.",
+    "fixed_base_margin_usd": "10.0",
+    "description_fixed_base_margin_usd": "Фіксована базова маржа в USD, якщо `base_margin_reference_is_initial_overall` встановлено в false.",
+    "level_strength_influence": {
+      "enabled": true,
+      "description_level_strength_influence": "Чи впливає розрахована 'сила зони' (на основі ваги рівнів та їх конфлюенції) на розмір маржі для цієї зони.",
+      "confluence_score_weight_in_strength": "0.4",
+      "description_confluence_score_weight": "Вага балу конфлюенції (0-1) у загальній оцінці сили зони. Решта (1.0 - confluence_score_weight) припадає на `aggregated_weight` зони.",
+      "strength_bands_multipliers": [
+        {"strength_threshold": "0.5", "margin_multiplier": "0.7", "description_band": "Для зон з силою <= 0.5 (найслабші)."},
+        {"strength_threshold": "1.0", "margin_multiplier": "1.0", "description_band": "Для зон з силою > 0.5 і <= 1.0 (середні)."},
+        {"strength_threshold": "1.5", "margin_multiplier": "1.3", "description_band": "Для зон з силою > 1.0 і <= 1.5 (сильні)."},
+        {"strength_threshold": "2.0", "margin_multiplier": "1.6", "description_band": "Для зон з силою > 1.5 (найсильніші, до умовного максимуму 10)."}
+      ],
+      "description_strength_bands": "Список множників маржі на основі розрахованої 'сили зони'. `strength_threshold` - це верхня межа сили для застосування відповідного `margin_multiplier`. Зони, що перевищують останній поріг, використовують останній множник."
+    },
+    "distance_from_market_influence": {
+      "enabled": true,
+      "description_distance_from_market_influence": "Чи впливає відстань зони від поточної ринкової ціни на розмір маржі для цієї зони.",
+      "use_atr_for_distance_bands": true,
+      "description_use_atr_bands": "Якщо true, відстані в `distance_bands_multipliers` інтерпретуються як множники ATR. Якщо false, як відсотки від поточної ринкової ціни. Це визначає, наскільки 'далекою' вважається зона для коригування маржі.",
+      "distance_atr_source_tf": "M15_Base",
+      "description_distance_atr_tf": "ID таймфрейму (з `grid_timeframe_escalation.timeframes_config`), ATR якого використовується для розрахунку відстаней, якщо `use_atr_for_distance_bands`=true.",
+      "distance_bands_multipliers": [
+        {"distance_threshold": "0.5", "margin_multiplier": "0.8", "description_band": "Зони в межах 0-0.5 ATR/відсотка від ринку."},
+        {"distance_threshold": "1.0", "margin_multiplier": "1.2", "description_band": "Зони в межах 0.5-1.0 ATR/відсотка."},
+        {"distance_threshold": "2.0", "margin_multiplier": "1.5", "description_band": "Зони в межах 1.0-2.0 ATR/відсотків."},
+        {"distance_threshold": "3.0", "margin_multiplier": "2.0", "description_band": "Зони далі 2.0 ATR/відсотків (до 3.0)."}
+      ],
+      "description_distance_bands": "Список порогів відстані та відповідних множників маржі. `distance_threshold` - верхня межа діапазону. Ордери, що знаходяться далі від ринку, можуть отримувати більший множник маржі (або менший, залежно від стратегії)."
+    },
+    "min_margin_per_order_usd": "0.01",
+    "description_min_margin_order": "Мінімально допустима маржа для одного окремого ордера всередині кластера/групи.",
+    "max_margin_per_group_usd": "60.0",
+    "description_max_margin_group": "Максимальна сукупна маржа, яка може бути виділена на одну групу/зону ордерів."
+  },
+  "grid_timeframe_escalation": {
+    "description": "Налаштування для використання різних таймфреймів (ТФ) для аналізу ринку та побудови сітки ордерів. Дозволяє адаптувати стратегію до різних ринкових умов.",
+    "enabled": true,
+    "description_enabled_escalation": "Якщо true, система може використовувати конфігурації для кількох таймфреймів для генерації рівнів.",
+    "initial_placement_tf_count": 2,
+    "description_initial_placement_tf_count": "Скільки таймфреймів зі списку `timeframes_config` використовувати для початкового розміщення ордерів або при повному перерахунку сітки.",
+    "timeframes_config": [
+      {
+        "timeframe_id": "M5_Base",
+        "binance_interval_notation": "5m",
+        "description_tf": "Конфігурація для 5-хвилинного таймфрейму.",
+        "max_active_groups_on_tf": 1,
+        "description_max_active_groups_on_tf": "Максимальна кількість груп ордерів, що генеруються конкретно з цього ТФ.",
+        "level_placement_strategy": "default_cluster",
+        "description_level_placement_strategy": "Стратегія розміщення ордерів для рівнів, знайдених на цьому ТФ (наразі 'default_cluster' означає стандартне кластерне розміщення).",
+        "atr_period": 10, "bb_period": 20, "bb_std_dev": "2.0",
+        "sma_periods": [7, 20, 25, 50, 99], "description_sma_periods": "Список періодів для розрахунку ковзних середніх (SMA).",
+        "rsi_period": 14, "macd_fast": 12, "macd_slow": 26, "macd_signal": 9,
+        "stoch_rsi_length": 14, "stoch_rsi_rsi_length": 14, "stoch_rsi_k": 3, "stoch_rsi_d": 3,
+        "ichimoku_tenkan": 9, "ichimoku_kijun": 26, "ichimoku_senkou_b_period": 52,
+        "ichimoku_chikou_span_offset": 26, "ichimoku_senkou_span_a_b_offset": 26,
+        "extremum_local_lookback_candles": 24, "description_extremum_lookback": "Кількість свічок для пошуку локальних максимумів/мінімумів.",
+        "level_type_priority": ["bb_middle", "bb_lower", "extremum_local_low", "sma_50"],
+        "description_level_type_priority": "Пріоритет типів рівнів, знайдених на цьому ТФ, для відбору (не використовується прямо в поточній логіці агрегації, але може бути корисним для майбутніх розширень)."
+      },
+      {
+        "timeframe_id": "M15_Base",
+        "binance_interval_notation": "15m",
+        "description_tf": "Конфігурація для 15-хвилинного таймфрейму.",
+        "max_active_groups_on_tf": 2,
+        "level_placement_strategy": "default_cluster",
+        "atr_period": 14, "bb_period": 20, "bb_std_dev": "2.0", "sma_periods": [7, 20, 25, 50, 99, 200], "extremum_local_lookback_candles": 24, "rsi_period": 14, "macd_fast": 12, "macd_slow": 26, "macd_signal": 9, "stoch_rsi_length": 14, "stoch_rsi_rsi_length": 14, "stoch_rsi_k": 3, "stoch_rsi_d": 3, "ichimoku_tenkan": 9, "ichimoku_kijun": 26, "ichimoku_senkou_b_period": 52, "ichimoku_chikou_span_offset": 26, "ichimoku_senkou_span_a_b_offset": 26,
+        "level_type_priority": ["bb_lower", "sma_50", "extremum_local_low", "ichimoku_span_b", "sma_200"]
+      },
+      {
+        "timeframe_id": "H1_Base",
+        "binance_interval_notation": "1h",
+        "description_tf": "Конфігурація для 1-годинного таймфрейму.",
+        "max_active_groups_on_tf": 2,
+        "level_placement_strategy": "default_cluster",
+        "atr_period": 14, "bb_period": 20, "bb_std_dev": "2.5", "sma_periods": [20, 50, 99, 200], "extremum_local_lookback_candles": 48, "rsi_period": 14, "macd_fast": 12, "macd_slow": 26, "macd_signal": 9, "stoch_rsi_length": 14, "stoch_rsi_rsi_length": 14, "stoch_rsi_k": 3, "stoch_rsi_d": 3, "ichimoku_tenkan": 9, "ichimoku_kijun": 26, "ichimoku_senkou_b_period": 52, "ichimoku_chikou_span_offset": 26, "ichimoku_senkou_span_a_b_offset": 26,
+        "level_type_priority": ["bb_lower", "sma_99", "extremum_local_low", "sma_200"]
+      },
+      {
+        "timeframe_id": "H4_default_long_trend",
+        "binance_interval_notation": "4h",
+        "description_tf": "Конфігурація для 4-годинного таймфрейму, для довгострокових трендів та сильних рівнів.",
+        "max_active_groups_on_tf": 0, 
+        "level_placement_strategy": "default_cluster", 
+        "atr_period": 14, "bb_period": 20, "bb_std_dev": "2.0", "sma_periods": [20, 50, 100, 200], "extremum_local_lookback_candles": 50, "rsi_period": 14,
+        "level_type_priority": ["sma_50", "sma_100", "extremum_local_low", "bb_lower", "sma_200"]
+      },
+      {
+        "timeframe_id": "D1_major_levels",
+        "binance_interval_notation": "1d",
+        "description_tf": "Конфігурація для денного таймфрейму, для визначення основних довгострокових рівнів підтримки/опору.",
+        "max_active_groups_on_tf": 0, 
+        "level_placement_strategy": "default_cluster", 
+        "atr_period": 14, "bb_period": 20, "bb_std_dev": "2.0", "sma_periods": [20, 50, 100, 200], "extremum_local_lookback_candles": 60, "rsi_period": 14,
+        "level_type_priority": ["sma_50", "sma_100", "extremum_local_low", "sma_200"]
+      },
+      {
+        "timeframe_id": "M1_for_volatility_analysis",
+        "binance_interval_notation": "1m",
+        "description_tf": "Конфігурація для 1-хвилинного таймфрейму, переважно для аналізу поточної волатильності (ATR) та швидких рухів.",
+        "max_active_groups_on_tf": 0,
+        "level_placement_strategy": "default_cluster",
+        "level_type_priority": [],
+        "atr_period": 14, "sma_periods": [20, 25, 50, 99]
+      }
+    ],
+    "atr_multiplier_min_distance_groups_default": "0.9",
+    "description_atr_multiplier_min_distance": "Мінімальна відстань між центрами різних груп ордерів, виражена як множник до ATR активного ТФ. Запобігає розміщенню груп занадто близько одна до одної."
+  },
+  "macd_control_config": {
+    "enabled": true,
+    "description_enabled": "Чи використовувати MACD для додаткового контролю над розміщенням ордерів та їхньою маржею.",
+    "control_timeframe_id": "M15_Base",
+    "description_control_timeframe_id": "ID таймфрейму (з `grid_timeframe_escalation.timeframes_config`), MACD якого використовується для сигналів.",
+    "conditions": [
+      {
+        "condition_name": "MACD_Strong_Breakout_Against_Position",
+        "description_condition": "Умова для сильного пробою MACD проти поточної позиції.",
+        "macd_line_vs_signal": "cross_down_strong",
+        "description_macd_line_vs_signal": "Тип сигналу: 'cross_down_strong' (лінія MACD перетинає сигнальну вниз, гістограма сильно негативна), 'cross_up_strong' (навпаки).",
+        "histogram_threshold_absolute": "0.00005",
+        "description_histogram_threshold": "Абсолютне значення порогу для гістограми MACD, щоб сигнал вважався 'сильним'.",
+        "action_if_signal_for_long": "cancel_all_buys_reduce_new_sell_margin_factor:0.7",
+        "description_action_long": "Дії, якщо сигнал спрацював для Long позиції. 'cancel_all_buys' - скасувати всі ордери на купівлю. 'reduce_new_sell_margin_factor:0.7' - зменшити маржу нових ордерів на продаж на 30%.",
+        "action_if_signal_for_short": "cancel_all_sells_reduce_new_buy_margin_factor:0.7",
+        "description_action_short": "Аналогічно для Short позиції."
+      },
+      {
+        "condition_name": "MACD_Reversal_Signal_With_Position",
+        "description_condition": "Умова для сигналу розвороту MACD у напрямку поточної позиції.",
+        "macd_line_vs_signal": "cross_up_strong",
+        "histogram_threshold_absolute": "0.00003",
+        "action_if_signal_for_long": "increase_buy_margin_factor:1.2",
+        "description_action_long_reversal": "Збільшити маржу нових ордерів на купівлю на 20%.",
+        "action_if_signal_for_short": "increase_sell_margin_factor:1.2",
+        "description_action_short_reversal": "Аналогічно для Short позиції."
+      }
+    ]
+  },
+  "high_risk_zone_adjustment": {
+    "enabled": true,
+    "description_enabled_hrz": "Чи активувати спеціальну логіку, коли позиція знаходиться у зоні високого ризику (значний збиток).",
+    "pnl_threshold_percent": "-45.0",
+    "description_pnl_threshold_percent": "Поріг PNL (у відсотках від вкладеної маржі поточної угоди), при досягненні якого активується режим високого ризику. Має бути від'ємним.",
+    "actions": {
+      "description_actions_hrz": "Дії, що виконуються в режимі високого ризику.",
+      "reduce_new_order_margin_multiplier": "0.6",
+      "description_reduce_margin_hrz": "Множник для зменшення маржі нових ордерів.",
+      "increase_min_distance_between_groups_multiplier": "1.3",
+      "description_increase_distance_hrz": "Множник для збільшення мінімальної відстані між новими групами ордерів.",
+      "max_new_groups_to_place_override": 1,
+      "description_max_groups_hrz": "Максимальна кількість нових груп ордерів, що можуть бути розміщені в цьому режимі (перевизначає `max_total_active_groups`).",
+      "use_only_conservative_levels": true,
+      "description_use_conservative_levels_hrz": "Чи використовувати тільки більш консервативні типи рівнів для генерації ордерів.",
+      "allowed_level_types_in_hrz": ["sma_200", "bb_lower", "Fibo_0.618", "extremum_local_low", "ichimoku_span_b"],
+      "description_allowed_levels_hrz": "Список типів рівнів, які дозволено використовувати в режимі високого ризику, якщо `use_only_conservative_levels`=true.",
+      "pause_new_grid_orders_duration_seconds": 0,
+      "description_pause_orders_hrz": "Тривалість (в секундах), на яку призупиняється розміщення нових ордерів сітки після активації режиму (0 - не призупиняти).",
+      "allow_only_rescue_or_stabilization_orders": false,
+      "description_allow_rescue_only_hrz": "Якщо true, в режимі високого ризику дозволяється розміщувати тільки 'рятувальні' або 'стабілізаційні' ордери, а не звичайні ордери сітки."
+    }
+  },
+  "dynamic_level_placement": {
+    "enabled": true,
+    "description_enabled_dlp": "Чи використовувати динамічне зміщення ціни ордера відносно знайденого рівня на основі тренду та волатильності.",
+    "default_offset_percent_atr": "0.03",
+    "description_default_offset_dlp": "Базове зміщення ціни ордера від рівня (в процентах від ATR рівня), якщо не спрацювали інші модифікатори. Позитивне значення зміщує ордер 'вглиб' ринку (проти напрямку ордера).",
+    "factors_config_by_level_type_pattern": {
+      "description_factors_dlp": "Конфігурація модифікаторів зміщення для різних типів рівнів. '*' - шаблон для всіх підтипів (напр., SMA_* для sma_20, sma_50 і т.д.).",
+      "SMA_*": { "strong_trend_modifier_atr_shift": "-0.1", "high_volatility_modifier_atr_shift": "0.15", "description_sma_dlp": "Для SMA: при сильному тренді в напрямку ордера, зміщення зменшується (ордер ближче до рівня). При високій волатильності - збільшується." },
+      "BB_outer_*": { "strong_trend_modifier_atr_shift": "0.0", "high_volatility_modifier_atr_shift": "0.4", "description_bb_outer_dlp": "Для зовнішніх ліній Боллінджера." },
+      "Fibo_*": { "strong_trend_modifier_atr_shift": "-0.05", "high_volatility_modifier_atr_shift": "0.1", "description_fibo_dlp": "Для рівнів Фібоначчі." },
+      "Extremum_*": { "strong_trend_modifier_atr_shift": "0.2", "high_volatility_modifier_atr_shift": "0.25", "description_extremum_dlp": "Для локальних екстремумів." }
+    },
+    "trend_determination_sma_tf": "H1_Base", "trend_determination_sma_short_period": 20, "trend_determination_sma_long_period": 50,
+    "description_trend_sma_dlp": "Параметри SMA, що використовуються для визначення 'сильного тренду' для динамічного зміщення.",
+    "volatility_threshold_for_dynamic_offset_factor": "1.3",
+    "description_volatility_threshold_dlp": "Множник до `strong_move_threshold_percent` (з `price_velocity_config`). Якщо поточна швидкість ціни перевищує (поріг * цей множник), вважається 'висока волатильність'."
+  },
+  "level_sourcing_and_processing": {
+    "description": "Налаштування, пов'язані з тим, як система знаходить, обробляє та пріоритезує цінові рівні для розміщення ордерів.",
+    "fibonacci_levels": {
+      "enabled": true,
+      "description_enabled_fibo": "Чи використовувати рівні Фібоначчі.",
+      "source_timeframes": ["H1_Base", "H5_Base", "M15_Base"],
+      "description_source_timeframes_fibo": "Список ID таймфреймів, з яких брати дані для розрахунку Фібоначчі.",
+      "lookback_candles_for_extremums": 200,
+      "description_lookback_fibo": "Кількість свічок для пошуку локальних максимумів/мінімумів для побудови сітки Фібоначчі.",
+      "min_price_range_percent_for_relevance": "1.5",
+      "description_min_range_fibo": "Мінімальний діапазон цін (у відсотках) між максимумом та мінімумом, щоб рівні Фібоначчі вважалися релевантними.",
+      "levels_to_use": ["0.382", "0.618", "0.786"],
+      "description_levels_to_use_fibo": "Список рівнів Фібоначчі (у вигляді рядків), які будуть використовуватися.",
+      "base_weight": "0.65",
+      "description_base_weight_fibo": "Базова вага, що присвоюється рівням Фібоначчі при агрегації."
+    },
+    "level_aggregation": {
+      "enabled": true,
+      "description_enabled_aggregation": "Чи агрегувати близькі рівні з різних джерел в одну 'зону підтримки/опору'.",
+      "proximity_threshold_percentage_of_price": "0.3",
+      "description_proximity_threshold": "Поріг близькості рівнів для їх агрегації в одну зону, у ВІДСОТКАХ від reference_price (напр., 0.1 означає 0.1% від ціни). Використовується для групування рівнів.",
+      "primary_tf_for_atr_proximity": "M15_Base",
+      "description_primary_tf_atr_aggregation": "ID таймфрейму, ATR якого використовується для визначення близькості рівнів, якщо `proximity_threshold_type` = 'atr_multiplier'.",
+      "proximity_threshold_type": "atr_multiplier",
+      "description_proximity_threshold_type": "Тип порогу близькості: 'atr_multiplier' (множник ATR) або 'percentage_of_price' (відсоток від ціни).",
+      "proximity_threshold_value_atr_mult": "0.1",
+      "description_proximity_threshold_value_atr": "Значення множника ATR для визначення близькості (якщо тип 'atr_multiplier').",
+      "weight_aggregation_method": "sum_capped",
+      "description_weight_aggregation_method": "Метод агрегації ваг рівнів у зоні: 'sum' (проста сума), 'max' (максимальна вага з рівнів), 'sum_capped' (сума, обмежена `max_aggregated_weight`).",
+      "max_aggregated_weight": "1.5",
+      "description_max_aggregated_weight": "Максимальна сукупна вага для зони, якщо використовується метод 'sum_capped'.",
+      "min_zone_strength_to_place_order": "0.4",
+      "description_min_zone_strength": "Мінімальна розрахована 'сила зони' (після врахування ваг та конфлюенції), щоб система взагалі розглядала цю зону для розміщення ордерів."
+    },
+    "confluence_settings": {
+      "enabled": true,
+      "description_enabled_confluence": "Чи використовувати логіку конфлюенції (збігу кількох сильних рівнів) для посилення ваги зони.",
+      "min_unique_level_types_for_boost": 2,
+      "description_min_unique_types": "Мінімальна кількість унікальних типів сильних рівнів (`strong_level_types_for_confluence`) у зоні, щоб активувати `confluence_boost_factor`.",
+      "confluence_boost_factor": "1.2",
+      "description_confluence_boost": "Множник до 'сили зони', якщо досягнуто `min_unique_level_types_for_boost`.",
+      "strong_level_types_for_confluence": ["bb_lower", "bb_upper", "sma_50", "sma_100", "sma_200", "Fibo_0.618", "Fibo_0.382", "extremum_local_low", "extremum_local_high"],
+      "description_strong_level_types_confluence": "Список типів рівнів, які вважаються 'сильними' для розрахунку конфлюенції."
+    },
+    "multi_timeframe_confluence_selection": {
+      "enabled": false,
+      "description_mtf_selection": "Розширена стратегія вибору зон на основі збігу сигналів/рівнів з кількох ключових таймфреймів одночасно (наразі неактивна).",
+      "key_timeframes_for_confluence": ["M15_Base", "H1_Base", "H4_default_long_trend","M5_Base"],
+      "description_key_tfs": "Список ID таймфреймів, які вважаються ключовими для пошуку збігу рівнів/сигналів.",
+      "min_key_timeframes_to_confirm_zone": 2,
+      "description_min_key_tfs_confirm": "Мінімальна кількість ключових ТФ, що мають одночасно підтвердити зону/рівень.",
+      "max_champion_zones_to_select": 1,
+      "description_max_champions": "Максимальна кількість 'чемпіонських' зон (підтверджених кількома ТФ), які будуть обрані для розміщення ордерів.",
+      "fallback_to_standard_selection_if_no_champion": true,
+      "description_fallback_mtf": "Якщо true і 'чемпіонських' зон не знайдено, система повертається до стандартного методу вибору N найсильніших зон."
+    }
+  },
+  "grid_adjustment_logic": {
+    "description": "Налаштування, що визначають, коли і як коригується існуюча сітка ордерів.",
+    "adjust_after_fill": true,
+    "description_adjust_after_fill": "Чи коригувати сітку ордерів одразу після виконання будь-якого ордера з неї.",
+    "adjust_on_price_bounce": {
+      "enabled": true,
+      "description_enabled_bounce": "Чи коригувати сітку, якщо ціна значно 'відскочила' від точки останнього виконання або середньої ціни входу.",
+      "threshold_percent": "1.0",
+      "description_threshold_percent_bounce": "Відсоток відскоку ціни від точки відліку (останнє виконання або середня ціна входу), який має спрацювати для ініціації корекції. Для шорт позицій очікується від'ємний відсоток (ціна впала).",
+      "check_from_last_fill_price": true,
+      "description_check_from_fill_bounce": "Якщо true, відскок рахується від ціни останнього виконаного ордера. Якщо false, від середньої ціни входу поточної позиції.",
+      "cooldown_seconds": 180,
+      "description_cooldown_bounce": "Мінімальний час (в секундах) після останньої корекції сітки, перш ніж нова корекція через відскок може відбутися."
+    },
+    "min_interval_between_any_adjustment_seconds": 30,
+    "description_min_interval_adjustment": "Загальний мінімальний інтервал (в секундах) між будь-якими двома послідовними корекціями сітки, щоб уникнути занадто частих змін."
+  },
+  "volatility_reaction": {
+    "description": "Налаштування реакції системи на зміни волатильності та швидкі рухи ціни.",
+    "price_velocity_config": {
+      "calculation_period_seconds": 30, "description_calc_period_velocity": "Період (в секундах) для розрахунку швидкості зміни ціни.",
+      "strong_move_threshold_percent": "0.9", "description_strong_move_velocity": "Відсоток зміни ціни за `calculation_period_seconds`, який вважається 'сильним рухом'.",
+      "ui_update_interval_seconds": 3, "description_ui_update_velocity": "Як часто оновлювати відображення швидкості ціни в інтерфейсі."
+    },
+    "pause_new_groups_on_strong_move": {
+      "enabled": true, "description_enabled_pause_groups": "Чи призупиняти розміщення нових груп ордерів під час сильного руху ціни.",
+      "duration_seconds": 60, "description_duration_pause_groups": "Тривалість паузи (в секундах)."
+    },
+    "cancel_pending_orders_on_extreme_move": {
+      "enabled": true, "description_enabled_cancel_extreme": "Чи скасовувати відкладені ордери при екстремальному русі ціни.",
+      "decision_time_seconds": 15, "description_decision_time_cancel": "Час (в секундах) для підтвердження екстремального руху перед скасуванням ордерів.",
+      "cancel_only_closest_single_order": true, "description_cancel_closest_extreme": "Якщо true, скасовується тільки найближчий ордер. Якщо false, скасовуються всі ордери поточної сітки.",
+      "cooldown_seconds_after_cancel": 60, "description_cooldown_cancel_extreme": "Кулдаун (в секундах) перед тим, як можна буде знову розміщувати ордери після скасування через екстремальний рух.",
+      "persistence_threshold_multiplier": "0.7", "description_persistence_cancel_extreme": "Множник до `strong_move_threshold_percent`. Якщо після `decision_time_seconds` швидкість ціни все ще вища за (поріг * цей множник), ордери скасовуються.",
+      "defer_if_orders_filled_this_step_seconds": 60, "description_defer_cancel_extreme": "Якщо ордер сітки щойно був виконаний, відкласти перевірку на екстремальний рух (і можливий перехід в стабілізацію) на вказану кількість секунд."
+    },
+    "dynamic_cluster_weights_on_strong_move": {
+      "enabled": true, "description_enabled_dyn_weights": "Чи динамічно змінювати ваги ордерів всередині кластера під час сильного руху ціни.",
+      "weight_shift_percent": "0.15", "description_weight_shift_dyn": "На який відсоток зміщувати вагу між ордерами в кластері.",
+      "cluster_spread_reduction_factor_on_strong_move": "0.8", "description_spread_reduction_dyn": "Множник для зменшення розкиду ордерів всередині кластера під час сильного руху.",
+      "behavior_on_adverse_move": "shift_to_further", "description_behavior_adverse_dyn": "Поведінка при сильному русі ПРОТИ позиції: 'shift_to_closer' (збільшити вагу ближчих ордерів), 'shift_to_further' (збільшити вагу дальших ордерів)."
+    },
+    "dynamic_spread_on_volatility": {
+      "enabled": true, "description_enabled_dyn_spread": "Чи динамічно збільшувати відстань між групами ордерів при високій волатильності.",
+      "atr_distance_multiplier_on_high_proc": "1.2", "description_atr_mult_dyn_spread": "Множник до базової відстані між групами (ATR) при високій швидкості ціни."
+    },
+    "emergency_dca_on_extreme_fall": {
+      "enabled": true, "description_enabled_edca": "Чи активувати режим аварійного усереднення (DCA) при сильному падінні ціни проти позиції.",
+      "trigger_threshold_percent_from_last_avg_price": "-3.0",
+      "description_trigger_threshold_dca": "Відсоток зміни ціни від середньої ціни входу останнього DCA ордера (або поточної середньої позиції, якщо це перший DCA), який запускає новий DCA. Для шортів це буде позитивне значення (ціна зросла).",
+      "dca_orders_count": 1, "description_dca_orders_count": "Максимальна кількість аварійних DCA ордерів у серії.",
+      "price_step_dca": {
+        "type": "atr_m1", "description_type_step_dca": "Тип розрахунку кроку ціни для DCA: 'atr_m1' (на основі ATR M1 таймфрейму), 'percentage' (відсоток від поточної ціни).",
+        "atr_m1_multiplier": "1.5", "description_atr_mult_step_dca": "Множник до ATR M1 для визначення кроку ціни.",
+        "percentage_step": "0.4", "description_perc_step_dca": "Відсоток від ціни для кроку, якщо тип 'percentage'.",
+        "fallback_percentage_step": "0.25", "description_fallback_perc_dca": "Відсоток від ціни для кроку, якщо ATR M1 недоступний або нульовий."
+      },
+      "margin_dca": {
+        "type": "pnl_adaptive", "description_type_margin_dca": "Тип розрахунку маржі для DCA ордера: 'fixed_usd' (фіксована сума), 'percent_of_total_margin' (відсоток від загальної маржі позиції), 'pnl_adaptive' (адаптивна, залежить від поточного PNL).",
+        "fixed_usd_amount": "4.0", "percent_total": "5.0",
+        "pnl_adaptive_base_usd": "8.0", "pnl_adaptive_pnl_factor": "0.05", "pnl_adaptive_boost_threshold_percent": "-10.0", "pnl_adaptive_boost_step_percent": "-5.0",
+        "min_margin_usd": "5.0", "max_margin_usd": "50.0"
+      },
+      "min_interval_between_dca_seconds": 30, "description_min_interval_dca": "Мінімальний інтервал (в секундах) між розміщенням двох послідовних DCA ордерів.",
+      "cooldown_after_series_seconds": 240, "description_cooldown_series_dca": "Кулдаун (в секундах) після завершення серії DCA ордерів перед тим, як можна буде знову активувати режим DCA.",
+      "rebound_atr_m1_multiplier_exit": "2.5", "description_rebound_exit_dca": "Множник до ATR M1. Якщо ціна відскочить на цю відстань від ціни останнього DCA ордера, режим DCA завершується.",
+      "stabilization_pnl_target_exit": "-30.0",
+      "description_stabilization_pnl_target_exit": "Цільовий PNL (у відсотках від вкладеної маржі поточної угоди), при досягненні якого бот виходить з режиму екстреного DCA та переходить до стабілізації (якщо PNL покращився до цього рівня)."
+    }
+  },
+  "stabilization_logic": {
+    "enabled_after_volatility_event": true, "description_enabled_stabilization": "Чи активувати режим пошуку стабілізації ринку після екстремального руху або завершення серії DCA.",
+    "monitoring_tf_binance_notation": "5m", "description_monitoring_tf_stabilization": "Таймфрейм (нотація Binance), на якому аналізується стабілізація ціни.",
+    "lookback_candles": 12, "description_lookback_stabilization": "Кількість свічок для аналізу стабілізації.",
+    "price_range_as_atr_multiplier": "0.7", "description_price_range_stabilization": "Максимально допустимий діапазон цін (як множник до ATR `monitoring_tf`) для того, щоб вважати ринок стабілізованим.",
+    "min_duration_seconds": 180, "description_min_duration_stabilization": "Мінімальний час (в секундах), протягом якого ринок має залишатися стабільним, перш ніж можна буде розмістити стабілізаційний ордер.",
+    "exit_stabilization_mode_on_breakout_atr_multiplier": "1.0", "description_exit_breakout_stabilization": "Множник до ATR. Якщо ціна виходить за межі діапазону стабілізації на цю відстань, режим стабілізації завершується.",
+    "stabilization_dca_order": {
+      "enabled": true, "description_enabled_stab_dca": "Чи розміщувати спеціальний DCA ордер після підтвердження стабілізації.",
+      "use_macd_confirmation": true, "macd_tf_for_stab": "15m", "description_macd_conf_stab": "Використовувати MACD на вказаному ТФ для підтвердження входу.",
+      "use_rsi_confirmation": true, "rsi_tf_for_stab": "15m", "rsi_buy_threshold": 35, "rsi_sell_threshold": 65, "description_rsi_conf_stab": "Використовувати RSI для підтвердження входу.",
+      "margin_percent_of_current_total_active_margin": "10.0", "description_margin_perc_stab_dca": "Маржа для стабілізаційного ордера як відсоток від поточної загальної активної маржі позиції.",
+      "min_stabilization_margin_usd":"5.0", "description_min_margin_stab_dca": "Мінімальна маржа для стабілізаційного ордера.",
+      "place_at_stabilization_border": "nearest_to_price", "description_place_at_border_stab": "Де розміщувати ордер: 'nearest_to_price' (найближча до поточної ціни межа діапазону стабілізації), 'middle_of_range' (середина діапазону).",
+      "max_distance_from_current_price_atr_multiplier": "0.3", "description_max_dist_stab_dca": "Максимальна відстань (в ATR) від поточної ціни, на якій може бути розміщений стабілізаційний ордер."
+    }
+  },
+  "profit_taking_and_risk_reduction": {
+    "description": "Налаштування, пов'язані з фіксацією прибутку та управлінням ризиками.",
+    "partial_take_profit": {
+      "enabled": true,
+      "description_enabled_ptp": "Чи використовувати механізм часткового взяття прибутку.",
+      "levels": [
+        {"pnl_threshold_percent": "12.0", "sell_portion_of_base_percent": "15.0", "reason_suffix": "PTP_12"},
+        {"pnl_threshold_percent": "15.0", "sell_portion_of_base_percent": "20.0", "reason_suffix": "PTP_15"}
+      ],
+      "description_ptp_levels": "Список рівнів для часткового взяття прибутку. `pnl_threshold_percent` - PNL поточної відкритої позиції у відсотках від її вкладеної маржі. `sell_portion_of_base_percent` - який відсоток від поточної кількості базового активу продати.",
+      "cooldown_after_partial_sell_seconds": 300,
+      "description_cooldown_ptp": "Кулдаун (в секундах) після спрацювання одного з рівнів PTP перед тим, як може спрацювати наступний (або той самий, якщо `reset_executed_levels_after_cooldown`=true).",
+      "reset_executed_levels_after_cooldown": true,
+      "description_reset_levels_ptp": "Якщо true, після завершення кулдауну та падіння PNL нижче певного порогу, раніше виконані рівні PTP стають знову активними.",
+      "pnl_drop_reset_threshold_factor": "0.8",
+      "description_pnl_drop_factor_ptp": "Множник до найнижчого активного порогу PTP. Якщо PNL впаде нижче (поріг * цей множник), виконані рівні PTP скидаються.",
+      "trigger_grid_adjustment_after_partial_tp": false,
+      "description_trigger_adjustment_ptp": "Чи запускати повне коригування сітки ордерів після спрацювання часткового тейк-профіту."
+    },
+    "trailing_stop_loss": {
+      "enabled": true, "description_enabled_tsl": "Чи використовувати трейлінг стоп-лосс.",
+      "activation_pnl_percent": "30.0",
+      "description_activation_pnl_tsl": "PNL поточної відкритої позиції (у відсотках від її вкладеної маржі), при якому активується трейлінг стоп-лосс.",
+      "distance_from_price_percent": "15.0",
+      "description_distance_tsl": "Відстань (у відсотках від поточної ціни) для встановлення трейлінг стоп-лоссу.",
+      "activate_tsl_after_partial_close": true, "description_activate_tsl_partial": "Чи активувати TSL (якщо він ще не активний) після часткового закриття позиції (PTP або PSL).",
+      "reset_tsl_after_partial_close": true, "description_reset_tsl_partial": "Чи скидати поточну ціну TSL (для перерахунку) після часткового закриття.",
+      "adjust_tsl_distance_after_partial_close_percent": "", "description_adjust_dist_tsl_partial": "Нове значення для `distance_from_price_percent` після часткового закриття (порожньо - не змінювати).",
+      "use_dynamic_stop_type_based_on_pnl": true, "description_use_dynamic_stop_tsl": "Чи використовувати динамічний тип стопу (напр., перехід на фіксований SL для зменшення збитків), якщо TSL активований, але PNL падає.",
+      "loss_reduction_sl_percentage_from_entry": "2.0",
+      "description_loss_reduction_sl_tsl": "Якщо `use_dynamic_stop_type_based_on_pnl`=true і TSL активований, але PNL падає нижче цього відсотка від середньої ціни входу, TSL може бути переміщений для зменшення збитків або замінений на фіксований SL.",
+      "reset_tsl_on_position_increase": true,
+      "description_reset_tsl_increase": "Чи скидати ціну TSL (для перерахунку) при збільшенні розміру позиції (наприклад, після виконання ордера сітки)."
+    },
+    "fixed_stop_loss": {
+      "enabled_ui_override": false, "description_enabled_ui_fsl": "Чи увімкнено фіксований SL через UI (перевизначає `default_enabled_if_no_ui`).",
+      "default_enabled_if_no_ui": false, "description_default_enabled_fsl": "Чи увімкнено фіксований SL за замовчуванням, якщо немає перевизначення з UI.",
+      "price_ui_override": "0", "description_price_ui_fsl": "Ціна фіксованого SL, встановлена через UI (0 - не встановлено).",
+      "default_fixed_sl_price_from_entry_percent": "-5.0",
+      "description_default_fixed_sl_percent": "Відсоток від середньої ціни входу для розрахунку ціни фіксованого SL, якщо не задано в UI. Для лонгів - від'ємний (нижче входу), для шортів - позитивний (вище входу).",
+      "use_default_from_config_if_ui_not_set": true, "description_use_default_fsl": "Чи використовувати `default_fixed_sl_price_from_entry_percent`, якщо ціна SL не встановлена через UI."
+    },
+    "partial_stop_loss": {
+      "enabled": true, "description_enabled_psl": "Чи використовувати механізм часткового стоп-лоссу.",
+      "min_time_after_fill_for_psl_seconds": 300,
+      "description_min_time_after_fill_psl": "Мінімальний час в секундах після останнього виконання ордера, що збільшив позицію, перед тим як Partial SL може спрацювати.",
+      "levels": [
+        {"sl_pnl_trigger_percent": "-30.0", "close_percentage_of_current_position": "20.0", "reason_suffix": "PSL1_Base"},
+        {"sl_pnl_trigger_percent": "-80.0", "close_percentage_of_current_position": "20.0", "reason_suffix": "PSL2_Base"}
+      ],
+      "description_psl_levels": "Список рівнів для часткового стоп-лосу. `sl_pnl_trigger_percent` - PNL поточної відкритої позиції у відсотках від її вкладеної маржі (має бути від'ємним). `close_percentage_of_current_position` - який відсоток від поточної кількості базового активу закрити.",
+      "cooldown_seconds_after_partial_sl": 120, "description_cooldown_psl": "Кулдаун (в секундах) після спрацювання часткового стоп-лосу.",
+      "trigger_grid_adjustment_after_partial_sl": false, "description_trigger_adjustment_psl": "Чи запускати коригування сітки після часткового стоп-лосу."
+    },
+    "overall_target_pnl_percent": "45.0",
+    "description_overall_target_pnl": "Загальний цільовий PNL (у відсотках від вкладеної маржі поточної угоди), при досягненні якого позиція повністю закривається."
+  },
+  "close_orders_handling": {
+    "enabled": true, "description_enabled_coh": "Чи активувати логіку обробки (фільтрації/переміщення) занадто близьких один до одного відкладених ордерів.",
+    "min_distance_type": "atr_multiplier", "description_min_dist_type_coh": "Тип визначення мінімальної відстані: 'atr_multiplier' (множник до ATR), 'percentage' (відсоток від ціни), 'fixed_price_diff' (фіксована різниця в ціні).",
+    "min_distance_value": "0.29", "description_min_dist_val_coh": "Значення для типу мінімальної відстані (напр., '0.29' для ATR, '0.1' для відсотка, '10.5' для фіксованої різниці).",
+    "check_scope": "all_pending_orders", "description_check_scope_coh": "Область перевірки: 'all_pending_orders' (всі активні відкладені ордери), 'only_newly_generated' (тільки щойно згенеровані кандидати).",
+    "action_on_too_close": "move_less_favorable", "description_action_coh": "Дія, якщо ордери занадто близькі: 'cancel_less_favorable' (скасувати менш вигідний), 'move_less_favorable' (перемістити менш вигідний далі), 'merge_margins_into_favorable' (об'єднати маржі в більш вигідний - не реалізовано).",
+    "move_details": {
+      "move_target_type": "atr_offset_from_peer", "description_move_type_coh": "Тип розрахунку нової ціни для переміщення: 'atr_offset_from_peer' (зміщення на ATR від сусіднього ордера).",
+      "move_target_atr_multiplier": "0.15", "description_move_atr_mult_coh": "Множник ATR для зміщення."
+    },
+    "leverage_sensitivity_factor_for_min_distance": "0.05",
+    "description_leverage_sensitivity_factor_coh": "Коефіцієнт чутливості мінімальної відстані до поточного кредитного плеча (0.0 - немає чутливості, 1.0 - повна пропорційність). Більше значення = більша мінімальна відстань при вищому плечі."
+  },
+  "advanced_order_filtering": {
+    "enabled": true,
+    "description": "Розширена фільтрація відкладених ордерів на основі поточного PNL позиції.",
+    "filter_activation_pnl_percent": "-20.0",
+    "description_filter_activation_pnl": "Фільтр активується, якщо PNL поточної позиції впаде нижче цього значення (наприклад, -20% означає, що позиція у збитку 20% або більше).",
+    "order_pnl_threshold_for_removal_percent": "-15.0",
+    "description_order_pnl_threshold_for_removal": "Якщо фільтр активовано, система перевірятиме відкладені ордери. Якщо ціна відкладеного ордера (якщо б вона стала ринковою) призвела б до PNL позиції, який є КРАЩИМ (менш збитковим або прибутковим) за цей поріг, то такий ордер буде видалено. Наприклад, якщо тут -15%, а ордер при спрацюванні дав би PNL -10%, він буде видалений.",
+    "filter_applies_to": "buy_orders_in_long_sell_in_short",
+    "description_filter_applies_to_orders": "До яких типів ордерів застосовується фільтр: 'buy_orders_in_long_sell_in_short' (ордери на докупку в Long позиції, ордери на допродаж в Short позиції), 'all_grid_orders' (всі ордери сітки)."
+  },
+  "grid_generation_params": {
+    "description": "Додаткові параметри, що впливають на генерацію сітки.",
+    "min_level_distance_from_ref_atr_filter": "0.1",
+    "description_min_level_dist_atr": "Мінімальна відстань від ціни відліку (reference_price) до першого рівня сітки, виражена як множник до ATR. Рівні, що знаходяться ближче, можуть ігноруватися."
+  },
+  "level_weights_by_type": {
+    "description": "Базові ваги для різних типів рівнів підтримки/опору. Використовуються при агрегації рівнів у зони та розрахунку 'сили зони'. Чим вища вага, тим 'сильнішим' вважається рівень.",
+    "bb_middle": "0.6", "bb_lower": "0.6", "bb_upper": "0.6", "BB_*": "0.8",
+    "sma_7": "0.5", "sma_20": "0.6", "sma_25": "0.65", "sma_50": "0.75", "sma_99": "0.8", "sma_100":"0.85", "sma_200": "0.95", "SMA_*": "0.6",
+    "extremum_local": "0.6", "extremum_local_low": "0.65", "extremum_local_high": "0.65", "Extremum_*": "0.65",
+    "atr_fallback": "0.2", "description_atr_fallback_weight": "Вага для рівнів, згенерованих на основі ATR, якщо інші рівні не знайдено (наразі не використовується активно).",
+    "ichimoku_tenkan":"0.55", "ichimoku_kijun":"0.65", "ichimoku_span_a":"0.7", "ichimoku_span_b":"0.8", "Ichimoku_*": "0.65",
+    "Fibo_0.382": "0.7", "Fibo_0.5": "0.75", "Fibo_0.618": "0.85", "Fibo_0.786":"0.7", "Fibo_*": "0.7"
+  },
+  "existing_position_handling": {
+    "description": "Налаштування для обробки ситуацій, коли симуляція починається з вже існуючою позицією (наприклад, завантаженою з ручних ордерів).",
+    "rescue_group_enabled": true, "description_rescue_enabled": "Чи розміщувати спеціальну 'рятувальну' групу ордерів, якщо існуюча позиція у значному збитку.",
+    "rescue_pnl_threshold_percent": "-5.0",
+    "description_rescue_pnl_threshold": "PNL поточної відкритої позиції (у відсотках від її вкладеної маржі), при якому розміщується 'рятувальна' група ордерів.",
+    "rescue_group_use_dynamic_margin_if_available": true, "description_rescue_use_dynamic_margin": "Якщо true, використовує `get_dynamic_base_margin_for_new_groups` для розрахунку маржі рятувальної групи. Інакше - фіксований відсоток або множник.",
+    "rescue_group_margin_multiplier_override_dynamic": "0", "description_rescue_margin_mult_dynamic": "Якщо > 0 і `rescue_group_use_dynamic_margin_if_available`=true, динамічна маржа буде помножена на це значення. 0 - не перевизначати.",
+    "rescue_group_margin_percent_of_total_invested": "30.0", "description_rescue_margin_perc_invested": "Якщо `rescue_group_use_dynamic_margin_if_available`=false, маржа рятувальної групи буде цим відсотком від загальної інвестованої маржі в позицію.",
+    "rescue_group_timeframe_id": "M15_Base", "description_rescue_tf_id": "ID таймфрейму, на основі аналізу якого буде генеруватися рятувальна група."
+  },
+  "simulation_control": {
+    "description": "Загальні параметри управління симуляцією.",
+    "auto_restart_after_close": false, "description_auto_restart": "Чи автоматично перезапускати симуляцію після її завершення (наприклад, після спрацювання цільового PNL або стоп-лосу).",
+    "restart_delay_seconds": 10, "description_restart_delay": "Затримка (в секундах) перед автоматичним перезапуском.",
+    "min_interval_full_grid_rebuild_seconds": 5,
+    "description_min_interval_full_grid_rebuild": "Мінімальний інтервал (в секундах) між повними перерахунками/корекціями сітки, щоб уникнути надмірного навантаження або занадто частих змін.",
+    "total_capital_limit_usd": "100.0", "description_total_capital_limit": "Загальний ліміт капіталу в USD, який може бути використаний у симуляції (включаючи активну маржу та маржу у відкладених ордерах). 0 або менше - без обмежень.",
+    "emergency_capital_reserve_percent": "20.0",
+    "description_emergency_capital_reserve": "Відсоток від `total_capital_limit_usd`, який резервується для екстрених докупок (режим `emergency_dca`). Звичайні ордери сітки не зможуть використовувати цей зарезервований капітал."
+  },
+  "advanced_options": {
+    "description": "Додаткові розширені налаштування.",
+    "allow_data_refresh_during_simulation": false, "description_allow_refresh_sim": "Чи дозволяти періодичне оновлення історичних даних (k-ліній) та їх аналіз під час активної симуляції. Може впливати на продуктивність.",
+    "data_refresh_interval_seconds": 300, "description_data_refresh_interval": "Інтервал (в секундах) для періодичного оновлення даних, якщо `allow_data_refresh_during_simulation`=true або симуляція не активна."
+  },
+  "logging_and_notifications": {
+    "description": "Налаштування логування.",
+    "max_ui_log_messages": 500, "description_max_log_ui": "Максимальна кількість повідомлень, що зберігаються в лог-боксі інтерфейсу користувача."
+  },
+  "user_interface_presets": {
+    "description": "Набори готових налаштувань (профілі стратегій), які можна швидко обрати в інтерфейсі. Кожен профіль може перевизначати будь-які параметри з цього файлу.",
+    "default_aggression_profile_name": "moderate_v2",
+    "description_default_aggression_profile": "Ім'я профілю (`profile_name`), який буде завантажуватися за замовчуванням при старті програми.",
+    "aggression_profiles": [
+      {
+        "profile_name": "conservative",
+        "display_name": "Консервативний",
+        "description_profile": "Підхід з меншим ризиком: менш часті та менші за обсягом угоди, більш обережна корекція сітки, вищі пороги для тейк-профіту, менш агресивні стоп-лоси.",
+        "overrides": {
+          "general_grid_settings.margin_increase_factor_per_group": "1.1",
+          "general_grid_settings.initial_group_margin_usd": "8.0",
+          "grid_adjustment_logic.adjust_after_fill": false,
+          "grid_adjustment_logic.adjust_on_price_bounce.enabled": false,
+          "volatility_reaction.emergency_dca_on_extreme_fall.enabled": false,
+          "profit_taking_and_risk_reduction.overall_target_pnl_percent": "10.0",
+          "profit_taking_and_risk_reduction.partial_take_profit.enabled": true,
+          "profit_taking_and_risk_reduction.partial_take_profit.levels": [
+            {"pnl_threshold_percent": "12.0", "sell_portion_of_base_percent": "15.0", "reason_suffix": "PTP_C12"},
+            {"pnl_threshold_percent": "15.0", "sell_portion_of_base_percent": "20.0", "reason_suffix": "PTP_C15"}
+          ],
+          "profit_taking_and_risk_reduction.partial_take_profit.cooldown_after_partial_sell_seconds": 300,
+          "profit_taking_and_risk_reduction.partial_take_profit.reset_executed_levels_after_cooldown": true,
+          "profit_taking_and_risk_reduction.partial_take_profit.pnl_drop_reset_threshold_factor": "0.8",
+          "profit_taking_and_risk_reduction.trailing_stop_loss.enabled": true,
+          "profit_taking_and_risk_reduction.trailing_stop_loss.activation_pnl_percent": "4.0",
+          "profit_taking_and_risk_reduction.trailing_stop_loss.distance_from_price_percent": "1.2",
+          "profit_taking_and_risk_reduction.trailing_stop_loss.use_dynamic_stop_type_based_on_pnl": false,
+          "profit_taking_and_risk_reduction.partial_stop_loss.enabled": true,
+          "profit_taking_and_risk_reduction.partial_stop_loss.min_time_after_fill_for_psl_seconds": 600,
+          "profit_taking_and_risk_reduction.partial_stop_loss.levels": [
+            {"sl_pnl_trigger_percent": "-60.0", "close_percentage_of_current_position": "15.0", "reason_suffix": "PSL_Cons1"}
+          ],
+          "close_orders_handling.enabled": true,
+          "close_orders_handling.min_distance_type": "atr_multiplier",
+          "close_orders_handling.min_distance_value": "0.2",
+          "close_orders_handling.action_on_too_close": "cancel_less_favorable",
+          "close_orders_handling.leverage_sensitivity_factor_for_min_distance": "0.03",
+          "grid_timeframe_escalation.initial_placement_tf_count": 1,
+          "grid_timeframe_escalation.timeframes_config[0].max_active_groups_on_tf": 3,
+          "grid_timeframe_escalation.timeframes_config[0].level_type_priority": ["bb_lower", "sma_50", "sma_200"],
+          "macd_control_config.enabled": false,
+          "high_risk_zone_adjustment.pnl_threshold_percent": "-25.0",
+          "high_risk_zone_adjustment.actions.reduce_new_order_margin_multiplier": "0.7",
+          "dynamic_margin_logic.enabled": true,
+          "dynamic_margin_logic.level_strength_influence.enabled": true,
+          "dynamic_margin_logic.level_strength_influence.strength_bands_multipliers": [
+            {"strength_threshold": "0.6", "margin_multiplier": "0.8"},
+            {"strength_threshold": "1.2", "margin_multiplier": "1.0"},
+            {"strength_threshold": "10.0", "margin_multiplier": "1.2"}
+          ],
+          "dynamic_margin_logic.distance_from_market_influence.distance_bands_multipliers": [
+            {"distance_threshold": "0.8", "margin_multiplier": "1.0"},
+            {"distance_threshold": "1.5", "margin_multiplier": "1.1"},
+            {"distance_threshold": "2.5", "margin_multiplier": "1.3"}
+          ],
+          "volatility_reaction.cancel_pending_orders_on_extreme_move.defer_if_orders_filled_this_step_seconds": 90,
+          "advanced_order_filtering.filter_activation_pnl_percent": "-25.0",
+          "advanced_order_filtering.order_pnl_threshold_for_removal_percent": "-20.0"
+        }
+      },
+      {
+        "profile_name": "moderate_v2",
+        "display_name": "Помірний v2",
+        "description_profile": "Збалансований підхід (оновлена версія).",
+        "overrides": {
+          "general_grid_settings.initial_group_margin_usd": "10.0",
+          "general_grid_settings.margin_increase_factor_per_group": "1.2",
+          "grid_adjustment_logic.adjust_after_fill": true,
+          "grid_adjustment_logic.adjust_on_price_bounce.enabled": true,
+          "grid_adjustment_logic.adjust_on_price_bounce.threshold_percent": "1.2",
+          "grid_adjustment_logic.min_interval_between_any_adjustment_seconds": 60,
+          "volatility_reaction.cancel_pending_orders_on_extreme_move.cancel_only_closest_single_order": true,
+          "volatility_reaction.emergency_dca_on_extreme_fall.trigger_threshold_percent_from_last_avg_price": "-4.0",
+          "volatility_reaction.emergency_dca_on_extreme_fall.margin_dca.type": "fixed_usd",
+          "volatility_reaction.emergency_dca_on_extreme_fall.margin_dca.fixed_usd_amount": "2.0",
+          "profit_taking_and_risk_reduction.overall_target_pnl_percent": "25.0",
+          "profit_taking_and_risk_reduction.partial_take_profit.enabled": true,
+          "profit_taking_and_risk_reduction.partial_take_profit.levels": [
+            {"pnl_threshold_percent": "12.0", "sell_portion_of_base_percent": "15.0", "reason_suffix": "PTP_M12"},
+            {"pnl_threshold_percent": "15.0", "sell_portion_of_base_percent": "20.0", "reason_suffix": "PTP_M15"}
+          ],
+          "profit_taking_and_risk_reduction.partial_take_profit.cooldown_after_partial_sell_seconds": 300,
+          "profit_taking_and_risk_reduction.partial_take_profit.reset_executed_levels_after_cooldown": true,
+          "profit_taking_and_risk_reduction.partial_take_profit.pnl_drop_reset_threshold_factor": "0.8",
+          "profit_taking_and_risk_reduction.trailing_stop_loss.enabled": true,
+          "profit_taking_and_risk_reduction.trailing_stop_loss.activation_pnl_percent": "10.0",
+          "profit_taking_and_risk_reduction.trailing_stop_loss.distance_from_price_percent": "5.0",
+          "profit_taking_and_risk_reduction.trailing_stop_loss.use_dynamic_stop_type_based_on_pnl": true,
+          "profit_taking_and_risk_reduction.trailing_stop_loss.loss_reduction_sl_percentage_from_entry": "2.0",
+          "profit_taking_and_risk_reduction.partial_stop_loss.enabled": true,
+          "profit_taking_and_risk_reduction.partial_stop_loss.min_time_after_fill_for_psl_seconds": 300,
+          "profit_taking_and_risk_reduction.partial_stop_loss.levels": [
+            {"sl_pnl_trigger_percent": "-35.0", "close_percentage_of_current_position": "15.0", "reason_suffix": "PSL_Mod1"},
+            {"sl_pnl_trigger_percent": "-60.5", "close_percentage_of_current_position": "20.0", "reason_suffix": "PSL_Mod2"}
+          ],
+          "close_orders_handling.enabled": true,
+          "close_orders_handling.min_distance_type": "atr_multiplier",
+          "close_orders_handling.min_distance_value": "0.15",
+          "close_orders_handling.action_on_too_close": "cancel_less_favorable",
+          "close_orders_handling.leverage_sensitivity_factor_for_min_distance": "0.08",
+          "high_risk_zone_adjustment.pnl_threshold_percent": "-25.0",
+          "macd_control_config.enabled": true,
+          "macd_control_config.control_timeframe_id": "M15_Base",
+          "macd_control_config.conditions[0].histogram_threshold_absolute": "0.00003",
+          "dynamic_margin_logic.enabled": true,
+          "dynamic_margin_logic.level_strength_influence.enabled": true,
+          "dynamic_margin_logic.level_strength_influence.confluence_score_weight_in_strength": "0.5",
+          "dynamic_margin_logic.level_strength_influence.strength_bands_multipliers": [
+            {"strength_threshold": "0.5", "margin_multiplier": "0.8"},
+            {"strength_threshold": "1.0", "margin_multiplier": "1.0"},
+            {"strength_threshold": "1.5", "margin_multiplier": "1.25"},
+            {"strength_threshold": "10.0", "margin_multiplier": "1.5"}
+          ],
+          "dynamic_margin_logic.distance_from_market_influence.distance_bands_multipliers": [
+            {"distance_threshold": "0.6", "margin_multiplier": "1.0"},
+            {"distance_threshold": "1.2", "margin_multiplier": "1.2"},
+            {"distance_threshold": "2.2", "margin_multiplier": "1.6"}
+          ],
+          "volatility_reaction.cancel_pending_orders_on_extreme_move.defer_if_orders_filled_this_step_seconds": 60,
+          "advanced_order_filtering.filter_activation_pnl_percent": "-20.0",
+          "advanced_order_filtering.order_pnl_threshold_for_removal_percent": "-15.0"
+        }
+      },
+      {
+        "profile_name": "aggressive_v2",
+        "display_name": "Агресивний v2 (Перероблений)",
+        "description_profile": "Більш ризикований підхід: ширший розкид цін, менш часті, але потенційно більші ордери на сильних рівнях. Вища толерантність до ризику.",
+        "overrides": {
+          "general_grid_settings.initial_group_margin_usd": "15.0",
+          "general_grid_settings.margin_increase_factor_per_group": "1.35",
+          "general_grid_settings.atr_multiplier_cluster_spread": "0.30",
+          "general_grid_settings.max_total_active_groups": 3,
+          "grid_timeframe_escalation.atr_multiplier_min_distance_groups_default": "0.8",
+          "grid_timeframe_escalation.initial_placement_tf_count": 1,
+          "grid_timeframe_escalation.timeframes_config": [
+             {
+                "timeframe_id": "H1_Aggro_Primary",
+                "binance_interval_notation": "1h",
+                "max_active_groups_on_tf": 2,
+                "level_placement_strategy": "default_cluster",
+                "atr_period": 14, "bb_period": 20, "bb_std_dev": "2.5", "sma_periods": [50, 100, 200], "extremum_local_lookback_candles": 60,
+                "level_type_priority": ["sma_100", "sma_200", "bb_lower", "extremum_local_low", "Fibo_0.618", "Fibo_0.786"]
+              },
+              {
+                "timeframe_id": "H4_Aggro_Confirm",
+                "binance_interval_notation": "4h",
+                "max_active_groups_on_tf": 1,
+                 "level_type_priority": ["sma_50", "sma_100", "extremum_local_low", "Fibo_0.618"]
+              }
+          ],
+          "level_sourcing_and_processing.fibonacci_levels.source_timeframes": ["H4_default_long_trend", "D1_major_levels"],
+          "level_sourcing_and_processing.fibonacci_levels.levels_to_use": ["0.618", "0.786"],
+          "level_sourcing_and_processing.level_aggregation.min_zone_strength_to_place_order": "0.75",
+           "level_weights_by_type.sma_200": "1.2", "level_weights_by_type.sma_100": "1.0", "level_weights_by_type.Fibo_0.618": "0.9", "level_weights_by_type.Fibo_0.786": "0.85",
+          "dynamic_margin_logic.distance_from_market_influence.distance_bands_multipliers": [
+            {"distance_threshold": "1.0", "margin_multiplier": "1.0"},
+            {"distance_threshold": "2.0", "margin_multiplier": "1.4"},
+            {"distance_threshold": "3.5", "margin_multiplier": "1.8"}
+          ],
+          "dynamic_margin_logic.level_strength_influence.strength_bands_multipliers": [
+            {"strength_threshold": "0.7", "margin_multiplier": "0.8"},
+            {"strength_threshold": "1.2", "margin_multiplier": "1.0"},
+            {"strength_threshold": "1.8", "margin_multiplier": "1.3"},
+            {"strength_threshold": "10.0", "margin_multiplier": "1.6"}
+          ],
+          "grid_adjustment_logic.adjust_after_fill": true,
+          "grid_adjustment_logic.adjust_on_price_bounce.enabled": true,
+          "grid_adjustment_logic.adjust_on_price_bounce.threshold_percent": "1.5",
+          "grid_adjustment_logic.min_interval_between_any_adjustment_seconds": 120,
+          "volatility_reaction.cancel_pending_orders_on_extreme_move.cancel_only_closest_single_order": false,
+          "volatility_reaction.cancel_pending_orders_on_extreme_move.defer_if_orders_filled_this_step_seconds": 120,
+          "volatility_reaction.emergency_dca_on_extreme_fall.trigger_threshold_percent_from_last_avg_price": "-35.0",
+          "volatility_reaction.emergency_dca_on_extreme_fall.dca_orders_count": 2,
+          "volatility_reaction.emergency_dca_on_extreme_fall.margin_dca.type": "fixed_usd",
+          "volatility_reaction.emergency_dca_on_extreme_fall.margin_dca.fixed_usd_amount": "20.0",
+          "profit_taking_and_risk_reduction.overall_target_pnl_percent": "35.0",
+           "profit_taking_and_risk_reduction.partial_take_profit.enabled": true,
+           "profit_taking_and_risk_reduction.partial_take_profit.levels": [
+              {"pnl_threshold_percent": "12.0", "sell_portion_of_base_percent": "15.0", "reason_suffix": "PTP_A12"},
+              {"pnl_threshold_percent": "15.0", "sell_portion_of_base_percent": "20.0", "reason_suffix": "PTP_A15"}
+           ],
+          "profit_taking_and_risk_reduction.partial_take_profit.cooldown_after_partial_sell_seconds": 300,
+          "profit_taking_and_risk_reduction.partial_take_profit.reset_executed_levels_after_cooldown": true,
+          "profit_taking_and_risk_reduction.partial_take_profit.pnl_drop_reset_threshold_factor": "0.8",
+          "profit_taking_and_risk_reduction.trailing_stop_loss.enabled": true,
+          "profit_taking_and_risk_reduction.trailing_stop_loss.activation_pnl_percent": "15.0",
+          "profit_taking_and_risk_reduction.trailing_stop_loss.distance_from_price_percent": "7.0",
+          "profit_taking_and_risk_reduction.partial_stop_loss.enabled": true,
+          "profit_taking_and_risk_reduction.partial_stop_loss.levels": [
+            {"sl_pnl_trigger_percent": "-40.0", "close_percentage_of_current_position": "25.0", "reason_suffix": "PSL_Aggro1"}
+          ],
+          "close_orders_handling.enabled": true,
+          "close_orders_handling.min_distance_type": "atr_multiplier",
+          "close_orders_handling.min_distance_value": "0.35",
+          "close_orders_handling.action_on_too_close": "cancel_less_favorable",
+          "high_risk_zone_adjustment.pnl_threshold_percent": "-30.0",
+          "high_risk_zone_adjustment.actions.reduce_new_order_margin_multiplier": "0.5",
+          "high_risk_zone_adjustment.actions.max_new_groups_to_place_override": 1,
+          "high_risk_zone_adjustment.actions.use_only_conservative_levels": true,
+          "high_risk_zone_adjustment.actions.allowed_level_types_in_hrz": ["sma_200", "Fibo_0.786", "extremum_local_low"],
+          "macd_control_config.enabled": false,
+          "advanced_order_filtering.filter_activation_pnl_percent": "-25.0",
+          "advanced_order_filtering.order_pnl_threshold_for_removal_percent": "-18.0"
+        }
+      }
+    ]
+  },
+  "symbol_precisions": {
+    "description": "Точність (кількість знаків після коми) для ціни та кількості для різних торгових пар. Використовується для коректного форматування ордерів.",
+    "BTCUSDT": {"price_precision_str": "0.01", "quantity_precision_str": "0.00001"},
+    "ETHUSDT": {"price_precision_str": "0.01", "quantity_precision_str": "0.0001"},
+    "AAVEUSDT": {"price_precision_str": "0.01", "quantity_precision_str": "0.001"}
+  }
+}

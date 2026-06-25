@@ -1,0 +1,8 @@
+{
+    "partial_tp_levels": [
+        {
+            "pnl_threshold_percent": "200",
+            "close_percent_of_pos": "25"
+        }
+    ]
+}

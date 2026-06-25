@@ -1,0 +1,23 @@
+# Virtual environments
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables and API keys
+.env
+binance_api_keys.json
+
+# Cache and configurations
+bot_config_cache.json
+__pycache__/
+*.pyc
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log
+app_debug_price_flow.txt
