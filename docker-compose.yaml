@@ -8,6 +8,8 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+    env_file:
+      - .env
     volumes:
       - ./backend/bot_config_cache.json:/app/bot_config_cache.json
       - ./backend/binance_api_keys.json:/app/binance_api_keys.json

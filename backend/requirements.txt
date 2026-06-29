@@ -4,4 +4,4 @@ websockets
 python-binance
 pandas
 pydantic
-customtkinter
+

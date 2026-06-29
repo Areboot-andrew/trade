@@ -1,7 +1,6 @@
 # main_logging_module.py
 import queue
 import threading
-import tkinter as tk # For tk.NORMAL, tk.END, tk.DISABLED
 from datetime import datetime
 import logging # Standard Python logging
 
@@ -127,20 +126,10 @@ def add_live_log(app_instance, message: str, level: str = "INFO"):
     # Log to file via the queue
     log_message_to_file(app_instance, log_entry_for_file, log_type="live_event")
 
-    # Update GUI
-    if hasattr(app_instance, 'live_log_textbox') and app_instance.live_log_textbox.winfo_exists():
-        try:
-            # Текстове поле тепер завжди в стані NORMAL, тому не потрібно перемикати state
-            app_instance.live_log_textbox.insert(tk.END, log_entry_for_gui + "\n")
-            app_instance.live_log_textbox.see(tk.END)
-        except Exception as e_log_gui:
-            error_log_msg = f"LIVE_LOG_GUI_ERROR: {e_log_gui}. Original Msg: {log_entry_for_gui}"
-            log_message_to_file(app_instance, error_log_msg, log_type="gui_error")
-            print(error_log_msg)
-    else:
-        missing_gui_msg = f"LIVE_LOG_NO_TEXTBOX: GUI element 'live_log_textbox' not found or not visible. Original Msg: {log_entry_for_gui}"
-        log_message_to_file(app_instance, missing_gui_msg, log_type="gui_warning")
-        print(missing_gui_msg)
+    # Update GUI check removed for headless server
+    missing_gui_msg = f"LIVE_LOG_NO_TEXTBOX: Headless mode. Original Msg: {log_entry_for_gui}"
+    # log_message_to_file(app_instance, missing_gui_msg, log_type="gui_warning")
+    # print(missing_gui_msg)
 
 
 def stop_logging_thread(app_instance):
